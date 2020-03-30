@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
+import System.IO
 import Text.Read
 import Data.Char
 import Data.List
@@ -114,3 +115,13 @@ eval (App a b) = do
     v <- eval b
     eval $ subst e x v
 eval _         = empty
+
+main :: IO ()
+main = do
+    putStr "> "
+    hFlush  stdout
+    exp <- readLn
+    case eval exp of
+        Just v  -> print v
+        Nothing -> putStrLn "Error"
+    main
