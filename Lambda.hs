@@ -107,8 +107,8 @@ subst (App a b)       x v             = App (subst a x v) (subst b x v)
     
 
 
-eval :: Exp -> Maybe Val
-eval (Val v)   = Just v
+eval :: Exp -> Maybe Exp
+eval (Val v)   = pure v
 eval (App a b) = do
     Lam x e <- eval a
     v <- eval b
