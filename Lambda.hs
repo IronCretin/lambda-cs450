@@ -3,6 +3,8 @@
 import Text.Read
 import Data.Char
 import Data.List
+import Data.Set (Set)
+import qualified Data.Set as S
 import Control.Applicative
 import Control.Monad
 
@@ -82,3 +84,28 @@ instance Read Exp where
                 TName n <- readPrec
                 pure $ Var n
             ])
+
+closed :: Exp -> Bool
+closed e = go e (S.empty)  where
+    go (Val (Lam x e)) bound = go e (S.insert x bound)
+    go (Var x)         bound = S.member x bound
+    go (App a b)       bound = go a bound && go b bound
+    go e               bound = True
+
+subst :: Exp -> String -> Val -> Exp
+subst (Val (Num n))   x v             = Val (Num n)
+subst (Val (Lam y e)) x v | x == y    = Val (Lam y e)
+                          | otherwise = Val (Lam y (subst e x v))
+subst (Var y) x v         | x == y    = Val v
+                          | otherwise = Var y
+subst (App a b)       x v             = App (subst a x v) (subst b x v)
+    
+
+
+eval :: Exp -> Maybe Val
+eval (Val v)   = Just v
+eval (App a b) = do
+    Lam x e <- eval a
+    v <- eval b
+    eval $ subst e x v
+eval _         = empty
