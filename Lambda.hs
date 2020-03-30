@@ -66,12 +66,17 @@ instance Read Val where
     readPrec = do
         readPrec >>= \case
             TNum n -> pure $ Num n
-            TLam   -> do
-                TName arg <- readPrec
-                require TDot
-                body <- readPrec
-                pure $ Lam arg body
-            _ -> empty
+            TLam   -> readLam []
+            _      -> fail "Not a value"
+        where
+            readLam args = readPrec >>= \case
+                TName n -> readLam (n:args)
+                TDot    -> do
+                    body <- readPrec
+                    Val v <- pure $ foldl ((Val .) . flip Lam) body args
+                    pure v
+                _       -> fail "Invalid lambda"
+
 
 instance Read Exp where
     readPrec = 
