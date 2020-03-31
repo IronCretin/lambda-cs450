@@ -25,14 +25,20 @@ data Exp
 
 instance Show Val where
     showsPrec p (Num n)     = showsPrec p n
-    showsPrec p (Clo m x e) = showString "<" .
-                              showsPrec 0 (M.assocs m) .
-                              showString "; " .
+    showsPrec p (Clo m x e) = showString "#<[" .
+                              foldr (\p -> (showEntry p .)) id (M.assocs m) .
+                              showString "], " .
                               showString "\\" .
                               showString x .
                               showString ". " .
                               showsPrec 0 e .
                               showString ">"
+        where
+            showEntry (k, a) = showString k .
+                               showString " -> " .
+                               showsPrec 1 a .
+                               showString ";"
+
 instance Show Exp where
     showsPrec p (Val v) = showsPrec p v
     showsPrec p (Var x) = showString x
@@ -60,7 +66,7 @@ instance Read Token where
             _             -> empty
         , TName <$> readVar
         ] where
-            reserved c = isSpace c || c `elem` "()\\."
+            reserved c = isSpace c || c `elem` "()\\.#"
             readVar = munch1 (not . reserved)
 
     readListPrec = many $ readPrec
