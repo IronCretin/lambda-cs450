@@ -2,7 +2,8 @@
 
 import System.Console.Haskeline
 import System.IO
-import Text.Read
+import Text.Read hiding (get, lift)
+import qualified Text.Read as R
 import Data.Char
 import Data.List
 import Data.Functor
@@ -12,10 +13,11 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Control.Applicative
 import Control.Monad
+import Control.Monad.State
 
 data Val
     = Num Integer
-    | Clo (Map String Val) String Exp
+    | Clo (Map String Val) String Term
     | Void
     deriving Eq
 data Exp
@@ -73,7 +75,7 @@ data Token = TOpen | TClose | TLam | TSC | TLet | TEQ | TDot | TNum Integer | TN
 instance Read Token where
     readPrec = foldl1 (<++)
         [ TNum <$> readPrec
-        , get >>= \case
+        , R.get >>= \case
             '('           -> pure TOpen
             ')'           -> pure TClose
             '\\'          -> pure TLam
@@ -94,7 +96,7 @@ instance Read Token where
 
 munch :: (Char -> Bool) -> ReadPrec String
 munch p = look >>= \case
-    c:cs | p c -> get >> (c:) <$> (munch p)
+    c:cs | p c -> R.get >> (c:) <$> (munch p)
     _          -> pure []
 munch1 :: (Char -> Bool) -> ReadPrec String
 munch1 p = mfilter (not . null) (munch p)
@@ -103,7 +105,7 @@ require :: (Eq a, Read a) => a -> ReadPrec a
 require a = mfilter (a ==) readPrec
 
 char :: Char -> ReadPrec Char
-char c = mfilter (c ==) get
+char c = mfilter (c ==) R.get
 string :: String -> ReadPrec String
 string s = traverse char s
 
@@ -140,7 +142,7 @@ instance Read Term where
         foldl1 (<++)
             [ do
                 require TSC
-                b <- readTerm
+                b <- readPrec
                 pure $ Seq a b
             , pure a
             ]  where
@@ -154,23 +156,39 @@ instance Read Term where
                 , Exp <$> readPrec
                 ]
 
--- closed :: Exp -> Bool
--- closed e = go e (S.empty)  where
---     go (Val (Clo m x e)) bound = go e (S.insert x (S.union (M.keysSet m) bound))
---     go (Lam x e)         bound = go e (S.insert x bound)
---     go (Var x)           bound = S.member x bound
---     go (App a b)         bound = go a bound && go b bound
---     go e                 bound = True
+-- closed :: Term -> Bool
+-- closed e = goT e (S.empty)  where
+--     goT :: Term -> State (Set String) Bool
+--     goT (Exp e)           = goE e
+--     -- goT (Seq a b)
+--     goE :: Exp -> State (Set String) Bool
+--     goE (Val (Clo m x e)) = goT e (S.insert x (S.union (M.keysSet m)))
+--     goE (Lam x e)         = goT e (S.insert x)
+--     goE (Var x)           = S.member x
+--     goE (App a b)         = liftA2 (&&) (goE a) (goE b)
+--     goE e                 = pure True
 
-eval :: Exp -> Maybe Val
-eval e = go e M.empty  where
-    go (Val v)         env = pure v
-    go (Var x)         env = M.lookup x env
-    go (Lam x (Exp e)) env = pure $ Clo env x e
-    go (App a b)       env = do
-        Clo m x e <- go a env
-        v <- go b env
-        go e (M.insert x v m)
+eval :: Term -> Maybe Val
+eval e = evalStateT (go e) M.empty  where
+    goE :: Exp -> StateT (Map String Val) Maybe Val
+    goE (Val v)         = pure v
+    goE (Var x)         = get >>= lift . M.lookup x
+    goE (Lam x e) = do
+        env <- get
+        pure $ Clo env x e
+    goE (App a b)       = do
+        Clo m x e <- goE a
+        v <- goE b
+        withStateT (M.insert x v) (go e)
+    go :: Term -> StateT (Map String Val) Maybe Val
+    go (Exp e)   = goE e
+    go (Def x e) = do
+        v <- goE e
+        modify (M.insert x v)
+        pure Void
+    go (Seq a b) = do
+        go a
+        go b
 
 main :: IO ()
 main = runInputT (Settings noCompletion (Just ".history") True) loop  where
