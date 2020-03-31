@@ -184,7 +184,7 @@ eval e = evalStateT (go e) M.empty  where
     goE (App a b)       = do
         Clo m x e <- goE a
         v <- goE b
-        withStateT (M.insert x v) (go e)
+        lift $ evalStateT (go e) (M.insert x v m)
     go :: Term -> StateT (Map String Val) Maybe Val
     go (Exp e)   = goE e
     go (Def x e) = do
