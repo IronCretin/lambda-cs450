@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
+import System.Console.Haskeline
 import System.IO
 import Text.Read
 import Data.Char
@@ -117,11 +118,13 @@ eval (App a b) = do
 eval _         = empty
 
 main :: IO ()
-main = do
-    putStr "> "
-    hFlush  stdout
-    exp <- readLn
-    case eval exp of
-        Just v  -> print v
-        Nothing -> putStrLn "Error"
-    main
+main = runInputT (Settings noCompletion (Just ".history") True) loop  where
+    loop = do
+        inp <- getInputLine "> "
+        case inp of
+            Nothing -> pure ()
+            Just i -> do
+                case eval (read i) of
+                    Just v  -> outputStrLn $ show v
+                    Nothing -> outputStrLn "Error"
+                loop
