@@ -133,7 +133,7 @@ main = runInputT (Settings noCompletion (Just ".history") True) loop  where
         case inp of
             Nothing -> pure ()
             Just i -> do
-                case eval (read i) of
+                case eval =<< readMaybe i of
                     Just v  -> outputStrLn $ show v
                     Nothing -> outputStrLn "Error"
                 loop
