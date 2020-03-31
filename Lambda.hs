@@ -23,18 +23,20 @@ data Val
     = Num Integer
     | Clo (Map String Val) String Term
     | Void
-    deriving Eq
+    | Fun1 (Val -> Val)
+    | Fun2 (Val -> Val -> Val)
+    -- deriving Eq
 data Exp
     = Val Val
     | Var String
     | App Exp Exp
     | Lam String Term
-    deriving Eq
+    -- deriving Eq
 data Term
     = Exp Exp
     | Seq Term Term
     | Def String Exp
-    deriving Eq
+    -- deriving Eq
 
 instance Show Val where
     showsPrec p (Num n)     = showsPrec p n
@@ -52,6 +54,8 @@ instance Show Val where
                                showsPrec 1 a .
                                showString ";"
     showsPrec p Void        = showString "#<void>"
+    showsPrec p (Fun1 _)   = showString "#<procedure>"
+    showsPrec p (Fun2 _)   = showString "#<procedure>"
 
 instance Show Exp where
     showsPrec p (Val v) = showsPrec p v
@@ -165,9 +169,15 @@ instance Read Term where
                 , Exp <$> readPrec
                 ]
 
+stdlib :: Map String Val
+stdlib = M.fromList
+    [ ("+", Fun2 $ \(Num a) (Num b) -> Num (a + b))
+    , ("*", Fun2 $ \(Num a) (Num b) -> Num (a * b))
+    , ("-", Fun2 $ \(Num a) (Num b) -> Num (a - b))
+    ]
 
 eval :: Term -> Failure [] Val
-eval e = evalStateT (go e) M.empty  where
+eval e = evalStateT (go e) stdlib  where
     goE :: Exp -> StateT (Map String Val) (Failure []) Val
     goE (Val v)         = pure v
     goE (Var x)         = get >>= lift . maybeToFailure . M.lookup x
@@ -175,9 +185,14 @@ eval e = evalStateT (go e) M.empty  where
         env <- get
         pure $ Clo env x e
     goE (App a b)       = do
-        Clo m x e <- goE a
-        v <- goE b
-        lift $ evalStateT (go e) (M.insert x v m)
+        a' <- goE a
+        b' <- goE b
+        case a' of
+            Clo m x e -> do
+                lift $ evalStateT (go e) (M.insert x b' m)
+            Fun1 f -> pure $ f b'
+            Fun2 f -> pure $ Fun1 $ f b'
+            e -> fail $ "Not an expression: " ++ show e
     go :: Term -> StateT (Map String Val) (Failure []) Val
     go (Exp e)   = goE e
     go (Def x e) = do
@@ -191,7 +206,7 @@ eval e = evalStateT (go e) M.empty  where
 main :: IO ()
 main = runInputT (Settings noCompletion (Just ".history") True) loop  where
     loop = do
-        inp <- getInputLine "> "
+        inp <- getInputLine "\ESC[48;5;250m\ESC[38;5;27m λ \ESC[48;5;;38;5;250m\57520 \ESC[m"
         case inp of
             Nothing -> pure ()
             Just i -> do
