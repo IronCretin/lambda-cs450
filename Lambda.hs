@@ -42,12 +42,12 @@ instance Show Val where
                               showString ". " .
                               showsPrec 0 e .
                               showString ">"
-    showsPrec p Void        = showString "#<void>"
         where
             showEntry (k, a) = showString k .
                                showString " -> " .
                                showsPrec 1 a .
                                showString ";"
+    showsPrec p Void        = showString "#<void>"
 
 instance Show Exp where
     showsPrec p (Val v) = showsPrec p v
