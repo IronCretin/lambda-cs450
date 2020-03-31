@@ -34,15 +34,20 @@ data Term
 
 instance Show Val where
     showsPrec p (Num n)     = showsPrec p n
-    showsPrec p (Clo m x e) = showString "<" .
-                              showsPrec 0 (M.assocs m) .
-                              showString ", " .
+    showsPrec p (Clo m x e) = showString "#<[" .
+                              foldr (\p -> (showEntry p .)) id (M.assocs m) .
+                              showString "], " .
                               showString "\\" .
                               showString x .
                               showString ". " .
                               showsPrec 0 e .
                               showString ">"
     showsPrec p Void        = showString "#<void>"
+        where
+            showEntry (k, a) = showString k .
+                               showString " -> " .
+                               showsPrec 1 a .
+                               showString ";"
 
 instance Show Exp where
     showsPrec p (Val v) = showsPrec p v
@@ -90,7 +95,7 @@ instance Read Token where
         , TLet <$ string "let"
         , TEQ <$ string ":="
         ] where
-            reserved c = isSpace c || c `elem` "()\\.#q;"
+            reserved c = isSpace c || c `elem` "()\\.#;"
             readVar = munch1 (not . reserved)
     readListPrec = many $ readPrec
 
@@ -197,7 +202,7 @@ main = runInputT (Settings noCompletion (Just ".history") True) loop  where
         case inp of
             Nothing -> pure ()
             Just i -> do
-                case eval (read i) of
+                case eval =<< readMaybe i of
                     Just v  -> outputStrLn $ show v
                     Nothing -> outputStrLn "Error"
                 loop
