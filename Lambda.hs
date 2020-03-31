@@ -7,26 +7,32 @@ import Data.Char
 import Data.List
 import Data.Set (Set)
 import qualified Data.Set as S
+import Data.Map (Map)
+import qualified Data.Map as M
 import Control.Applicative
 import Control.Monad
 
 data Val
     = Num Integer
-    | Lam String Exp
+    | Clo (Map String Val) String Exp
     deriving Eq
 data Exp
     = Val Val
     | Var String
     | App Exp Exp
+    | Lam String Exp
     deriving Eq
 
 instance Show Val where
-    showsPrec p (Num n)   = showsPrec p n
-    showsPrec p (Lam x e) = showParen (p < 0 || 1 < p) $
-                                showString "\\" .
-                                showString x .
-                                showString ". " .
-                                showsPrec 0 e
+    showsPrec p (Num n)     = showsPrec p n
+    showsPrec p (Clo m x e) = showString "<" .
+                              showsPrec 0 (M.assocs m) .
+                              showString "; " .
+                              showString "\\" .
+                              showString x .
+                              showString ". " .
+                              showsPrec 0 e .
+                              showString ">"
 instance Show Exp where
     showsPrec p (Val v) = showsPrec p v
     showsPrec p (Var x) = showString x
@@ -34,6 +40,11 @@ instance Show Exp where
                                 showsPrec (-1) a .
                                 showString " " .
                                 showsPrec 2 b
+    showsPrec p (Lam x e) = showParen (p < 0 || 1 < p) $
+                                showString "\\" .
+                                showString x .
+                                showString ". " .
+                                showsPrec 0 e
 
 data Token = TOpen | TClose | TLam | TDot | TNum Integer | TName String deriving (Eq, Show)
 
@@ -68,16 +79,7 @@ instance Read Val where
     readPrec = do
         readPrec >>= \case
             TNum n -> pure $ Num n
-            TLam   -> readLam []
             _      -> fail "Not a value"
-        where
-            readLam args = readPrec >>= \case
-                TName n -> readLam (n:args)
-                TDot    -> do
-                    body <- readPrec
-                    Val v <- pure $ foldl ((Val .) . flip Lam) body args
-                    pure v
-                _       -> fail "Invalid lambda"
 
 
 instance Read Exp where
@@ -85,37 +87,38 @@ instance Read Exp where
         foldl1 App <$> some (foldl1 (<++)
             [ readPrec >>= \case
                 TOpen -> readPrec <* require TClose
+                TLam   -> readLam []
                 _ -> empty
             , Val <$> readPrec
             , do
                 TName n <- readPrec
                 pure $ Var n
             ])
+        where
+            readLam args = readPrec >>= \case
+                TName n -> readLam (n:args)
+                TDot    -> do
+                    body <- readPrec
+                    pure $ foldl (flip Lam) body args
+                _       -> fail "Invalid lambda"
 
 closed :: Exp -> Bool
 closed e = go e (S.empty)  where
-    go (Val (Lam x e)) bound = go e (S.insert x bound)
-    go (Var x)         bound = S.member x bound
-    go (App a b)       bound = go a bound && go b bound
-    go e               bound = True
-
-subst :: Exp -> String -> Val -> Exp
-subst (Val (Num n))   x v             = Val (Num n)
-subst (Val (Lam y e)) x v | x == y    = Val (Lam y e)
-                          | otherwise = Val (Lam y (subst e x v))
-subst (Var y) x v         | x == y    = Val v
-                          | otherwise = Var y
-subst (App a b)       x v             = App (subst a x v) (subst b x v)
-    
-
+    go (Val (Clo m x e)) bound = go e (S.insert x (S.union (M.keysSet m) bound))
+    go (Lam x e)         bound = go e (S.insert x bound)
+    go (Var x)           bound = S.member x bound
+    go (App a b)         bound = go a bound && go b bound
+    go e                 bound = True
 
 eval :: Exp -> Maybe Val
-eval (Val v)   = pure v
-eval (App a b) = do
-    Lam x e <- eval a
-    v <- eval b
-    eval $ subst e x v
-eval _         = empty
+eval e = go e M.empty  where
+    go (Val v)   env = pure v
+    go (Var x)   env = M.lookup x env
+    go (Lam x e) env = pure $ Clo env x e
+    go (App a b) env = do
+        Clo m x e <- go a env
+        v <- go b env
+        go e (M.insert x v m)
 
 main :: IO ()
 main = runInputT (Settings noCompletion (Just ".history") True) loop  where
