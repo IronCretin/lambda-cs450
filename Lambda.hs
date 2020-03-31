@@ -169,11 +169,13 @@ instance Read Term where
                 , Exp <$> readPrec
                 ]
 
+liftNum2 :: (Integer -> Integer -> Integer) -> Val
+liftNum2 f = Fun2 $ \(Num a) (Num b) -> Num (f a b)
 stdlib :: Map String Val
 stdlib = M.fromList
-    [ ("+", Fun2 $ \(Num a) (Num b) -> Num (a + b))
-    , ("*", Fun2 $ \(Num a) (Num b) -> Num (a * b))
-    , ("-", Fun2 $ \(Num a) (Num b) -> Num (a - b))
+    [ ("+", liftNum2 (+))
+    , ("*", liftNum2 (*))
+    , ("-", liftNum2 (-))
     ]
 
 eval :: Term -> Failure [] Val
