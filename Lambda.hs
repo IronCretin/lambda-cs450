@@ -14,10 +14,10 @@ import qualified Data.Set as S
 import Data.Map (Map)
 import qualified Data.Map as M
 import Control.Applicative
-import Control.Monad
 import Control.Monad.State
 
 import Failure
+import Parsers
 
 data Val
     = Num Integer
@@ -103,20 +103,6 @@ instance Read Token where
             readVar = munch1 (not . reserved)
     readListPrec = many $ readPrec
 
-munch :: (Char -> Bool) -> ReadPrec String
-munch p = look >>= \case
-    c:cs | p c -> R.get >> (c:) <$> (munch p)
-    _          -> pure []
-munch1 :: (Char -> Bool) -> ReadPrec String
-munch1 p = mfilter (not . null) (munch p)
-
-require :: (Eq a, Read a) => a -> ReadPrec a
-require a = mfilter (a ==) readPrec
-
-char :: Char -> ReadPrec Char
-char c = mfilter (c ==) R.get
-string :: String -> ReadPrec String
-string s = traverse char s
 
 instance Read Val where
     readPrec = do
