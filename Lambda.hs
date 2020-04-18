@@ -38,15 +38,17 @@ data Term
     deriving Eq
 
 instance Show Val where
-    showsPrec p (Num n)     = showsPrec p n
-    showsPrec p (Clo m x e) = showString "#<[@" .
-                              showsPrec 0 (handleVal m) .
-                              showString "], " .
-                              showString "\\" .
-                              showString x .
-                              showString ". " .
-                              showsPrec 0 e .
-                              showString ">"
+    showsPrec p (Num n)      = showsPrec p n
+    showsPrec p (Bool True)  = showString "#t"
+    showsPrec p (Bool False) = showString "#f"
+    showsPrec p (Clo m x e)  = showString "#<[@" .
+                               showsPrec 0 (handleVal m) .
+                               showString "], " .
+                               showString "\\" .
+                               showString x .
+                               showString ". " .
+                               showsPrec 0 e .
+                               showString ">"
         where
             showEntry (k, a) = showString k .
                                showString " -> " .
@@ -80,7 +82,7 @@ instance Show Term where
                             showString " := " .
                             showsPrec 2 e
 
-data Token = TOpen | TClose | TLam | TSC | TLet | TEQ | TDot | TNum Integer | TName String  deriving (Eq, Show)
+data Token = TOpen | TClose | TLam | TSC | TLet | TEQ | TDot | THash String | TNum Integer | TName String  deriving (Eq, Show)
 
 instance Read Token where
     readPrec = foldl1 (<++)
@@ -91,6 +93,7 @@ instance Read Token where
             '\\'          -> pure TLam
             '.'           -> pure TDot
             ';'           -> pure TSC
+            '#'           -> THash <$> munch1 (not . isSpace)
             w | isSpace w -> readPrec
             _             -> empty
         , readVar <&> \case
@@ -108,8 +111,9 @@ instance Read Token where
 instance Read Val where
     readPrec = do
         readPrec >>= \case
-            TNum n -> pure $ Num n
-            _      -> fail "Not a value"
+            TNum n         -> pure $ Num n
+            THash "<void>" -> pure Void
+            _              -> fail "Not a value"
 
 instance Read Exp where
     readPrec = 
