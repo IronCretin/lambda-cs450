@@ -22,6 +22,7 @@ import Frame
 
 data Val
     = Num Integer
+    | Bool Bool
     | Clo (Handle (Frame Val)) String Term
     | Void
     | Fun1 (Val -> Val)
@@ -32,6 +33,8 @@ data Exp
     | Var String
     | App Exp Exp
     | Lam String Term
+    | And Exp Exp
+    | Or Exp Exp
     -- deriving Eq
 data Term
     = Exp Exp
@@ -40,23 +43,25 @@ data Term
     -- deriving Eq
 
 instance Show Val where
-    showsPrec p (Num n)     = showsPrec p n
-    showsPrec p (Clo m x e) = showString "#<[@" .
-                              showsPrec 0 (handleVal m) .
-                              showString "], " .
-                              showString "\\" .
-                              showString x .
-                              showString ". " .
-                              showsPrec 0 e .
-                              showString ">"
+    showsPrec p (Num n)      = showsPrec p n
+    showsPrec p (Bool True)  = showString "#t"
+    showsPrec p (Bool False) = showString "#f"
+    showsPrec p (Clo m x e)  = showString "#<[@" .
+                               showsPrec 0 (handleVal m) .
+                               showString "], " .
+                               showString "\\" .
+                               showString x .
+                               showString ". " .
+                               showsPrec 0 e .
+                               showString ">"
         where
-            showEntry (k, a) = showString k .
-                               showString " -> " .
-                               showsPrec 1 a .
-                               showString ";"
-    showsPrec p Void        = showString "#<void>"
-    showsPrec p (Fun1 _)   = showString "#<procedure>"
-    showsPrec p (Fun2 _)   = showString "#<procedure>"
+            showEntry (k, a)  = showString k .
+                                showString " -> " .
+                                showsPrec 1 a .
+                                showString ";"
+    showsPrec p Void         = showString "#<void>"
+    showsPrec p (Fun1 _)     = showString "#<procedure>"
+    showsPrec p (Fun2 _)     = showString "#<procedure>"
 
 instance Show Exp where
     showsPrec p (Val v) = showsPrec p v
@@ -84,7 +89,7 @@ instance Show Term where
                             showString " := " .
                             showsPrec 2 e
 
-data Token = TOpen | TClose | TLam | TSC | TLet | TEQ | TDot | TNum Integer | TName String  deriving (Eq, Show)
+data Token = TOpen | TClose | TLam | TSC | TLet | TEQ | TDot | THash String | TNum Integer | TName String  deriving (Eq, Show)
 
 instance Read Token where
     readPrec = foldl1 (<++)
@@ -95,6 +100,7 @@ instance Read Token where
             '\\'          -> pure TLam
             '.'           -> pure TDot
             ';'           -> pure TSC
+            '#'           -> THash <$> munch1 (not . isSpace)
             w | isSpace w -> readPrec
             _             -> empty
         , readVar <&> \case
@@ -112,8 +118,9 @@ instance Read Token where
 instance Read Val where
     readPrec = do
         readPrec >>= \case
-            TNum n -> pure $ Num n
-            _      -> fail "Not a value"
+            TNum n         -> pure $ Num n
+            THash "<void>" -> pure Void
+            _              -> fail "Not a value"
 
 instance Read Exp where
     readPrec = 
