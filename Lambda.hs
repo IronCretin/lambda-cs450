@@ -100,7 +100,7 @@ instance Read Token where
             '\\'          -> pure TLam
             '.'           -> pure TDot
             ';'           -> pure TSC
-            '#'           -> THash <$> munch1 (not . isSpace)
+            '#'           -> THash <$> readHash 0
             w | isSpace w -> readPrec
             _             -> empty
         , readVar <&> \case
@@ -112,6 +112,16 @@ instance Read Token where
         ] where
             reserved c = isSpace c || c `elem` "()\\.#;"
             readVar = munch1 (not . reserved)
+            readHash 0 = (R.get >>= \case 
+                    '<'           -> ('<':) <$> readHash 1
+                    '>'           -> fail "unmatched brackets"
+                    w | isSpace w -> pure []
+                    c             -> (c:) <$> readHash 0)
+                <++ pure []
+            readHash l = R.get >>= \case 
+                '<'           -> ('<':) <$> readHash (l+1)
+                '>'           -> ('>':) <$> readHash (l-1)
+                c             -> (c:) <$> readHash l
     readListPrec = many $ readPrec
 
 
