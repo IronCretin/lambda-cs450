@@ -179,31 +179,31 @@ stdlib = M.fromList
     ]
 
 eval :: Term -> Failure [] Val
-eval e = evalStateT (go e) stdlib  where
-    goE :: Exp -> StateT (Map String Val) (Failure []) Val
-    goE (Val v)         = pure v
-    goE (Var x)         = get >>= lift . maybeToFailure . M.lookup x
-    goE (Lam x e) = do
+eval e = evalStateT (evalSt e) stdlib  where
+    evalEx :: Exp -> StateT (Map String Val) (Failure []) Val
+    evalEx (Val v)         = pure v
+    evalEx (Var x)         = get >>= lift . maybeToFailure . M.lookup x
+    evalEx (Lam x e) = do
         env <- get
         pure $ Clo env x e
-    goE (App a b)       = do
-        a' <- goE a
-        b' <- goE b
+    evalEx (App a b)       = do
+        a' <- evalEx a
+        b' <- evalEx b
         case a' of
             Clo m x e -> do
-                lift $ evalStateT (go e) (M.insert x b' m)
+                lift $ evalStateT (evalSt e) (M.insert x b' m)
             Fun1 f -> pure $ f b'
             Fun2 f -> pure $ Fun1 $ f b'
             e -> fail $ "Not an expression: " ++ show e
-    go :: Term -> StateT (Map String Val) (Failure []) Val
-    go (Exp e)   = goE e
-    go (Def x e) = do
-        v <- goE e
+    evalSt :: Term -> StateT (Map String Val) (Failure []) Val
+    evalSt (Exp e)   = evalEx e
+    evalSt (Def x e) = do
+        v <- evalEx e
         modify (M.insert x v)
         pure Void
-    go (Seq a b) = do
-        go a
-        go b
+    evalSt (Seq a b) = do
+        evalSt a
+        evalSt b
 
 main :: IO ()
 main = runInputT (Settings noCompletion (Just ".history") True) loop  where
