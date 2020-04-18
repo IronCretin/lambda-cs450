@@ -33,4 +33,6 @@ frameGet k h = do
     f <- heapGet h
     case M.lookup k (locals f) of
         Just v  -> pure v
-        Nothing -> fail $ "Couldn't find " ++ k
+        Nothing -> case parent f of
+            Just p -> frameGet k p
+            Nothing -> fail $ "Couldn't find " ++ k

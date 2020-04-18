@@ -39,8 +39,8 @@ data Term
 
 instance Show Val where
     showsPrec p (Num n)     = showsPrec p n
-    showsPrec p (Clo m x e) = showString "#<[..." .
-                            --   foldr (\p -> (showEntry p .)) id (M.assocs m) .
+    showsPrec p (Clo m x e) = showString "#<[@" .
+                              showsPrec 0 (handleVal m) .
                               showString "], " .
                               showString "\\" .
                               showString x .
