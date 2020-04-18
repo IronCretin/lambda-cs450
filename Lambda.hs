@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ApplicativeDo #-}
 
 import System.Console.Haskeline
 import System.IO
@@ -7,13 +8,16 @@ import qualified Text.Read as R
 import Data.Char
 import Data.List
 import Data.Functor
+import Data.Foldable
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Map (Map)
 import qualified Data.Map as M
 import Control.Applicative
-import Control.Monad
 import Control.Monad.State
+
+import Failure
+import Parsers
 
 data Val
     = Num Integer
@@ -99,20 +103,6 @@ instance Read Token where
             readVar = munch1 (not . reserved)
     readListPrec = many $ readPrec
 
-munch :: (Char -> Bool) -> ReadPrec String
-munch p = look >>= \case
-    c:cs | p c -> R.get >> (c:) <$> (munch p)
-    _          -> pure []
-munch1 :: (Char -> Bool) -> ReadPrec String
-munch1 p = mfilter (not . null) (munch p)
-
-require :: (Eq a, Read a) => a -> ReadPrec a
-require a = mfilter (a ==) readPrec
-
-char :: Char -> ReadPrec Char
-char c = mfilter (c ==) R.get
-string :: String -> ReadPrec String
-string s = traverse char s
 
 instance Read Val where
     readPrec = do
@@ -161,23 +151,12 @@ instance Read Term where
                 , Exp <$> readPrec
                 ]
 
--- closed :: Term -> Bool
--- closed e = goT e (S.empty)  where
---     goT :: Term -> State (Set String) Bool
---     goT (Exp e)           = goE e
---     -- goT (Seq a b)
---     goE :: Exp -> State (Set String) Bool
---     goE (Val (Clo m x e)) = goT e (S.insert x (S.union (M.keysSet m)))
---     goE (Lam x e)         = goT e (S.insert x)
---     goE (Var x)           = S.member x
---     goE (App a b)         = liftA2 (&&) (goE a) (goE b)
---     goE e                 = pure True
 
-eval :: Term -> Maybe Val
+eval :: Term -> Failure [] Val
 eval e = evalStateT (go e) M.empty  where
-    goE :: Exp -> StateT (Map String Val) Maybe Val
+    goE :: Exp -> StateT (Map String Val) (Failure []) Val
     goE (Val v)         = pure v
-    goE (Var x)         = get >>= lift . M.lookup x
+    goE (Var x)         = get >>= lift . maybeToFailure . M.lookup x
     goE (Lam x e) = do
         env <- get
         pure $ Clo env x e
@@ -185,7 +164,7 @@ eval e = evalStateT (go e) M.empty  where
         Clo m x e <- goE a
         v <- goE b
         lift $ evalStateT (go e) (M.insert x v m)
-    go :: Term -> StateT (Map String Val) Maybe Val
+    go :: Term -> StateT (Map String Val) (Failure []) Val
     go (Exp e)   = goE e
     go (Def x e) = do
         v <- goE e
@@ -198,11 +177,12 @@ eval e = evalStateT (go e) M.empty  where
 main :: IO ()
 main = runInputT (Settings noCompletion (Just ".history") True) loop  where
     loop = do
-        inp <- getInputLine "> "
+        inp <- getInputLine "\ESC[48;5;250m\ESC[38;5;27m λ \ESC[48;5;;38;5;250m\57520 \ESC[m"
         case inp of
             Nothing -> pure ()
             Just i -> do
-                case eval =<< readMaybe i of
-                    Just v  -> outputStrLn $ show v
-                    Nothing -> outputStrLn "Error"
+                case eval =<< maybeToFailure (readMaybe i) of
+                    Ok v     -> outputStrLn $ show v
+                    Error [] -> outputStrLn $ "Parse Error"
+                    Error es -> traverse_ outputStrLn es
                 loop
