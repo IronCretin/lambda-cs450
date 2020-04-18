@@ -161,18 +161,6 @@ instance Read Term where
                 , Exp <$> readPrec
                 ]
 
--- closed :: Term -> Bool
--- closed e = goT e (S.empty)  where
---     goT :: Term -> State (Set String) Bool
---     goT (Exp e)           = goE e
---     -- goT (Seq a b)
---     goE :: Exp -> State (Set String) Bool
---     goE (Val (Clo m x e)) = goT e (S.insert x (S.union (M.keysSet m)))
---     goE (Lam x e)         = goT e (S.insert x)
---     goE (Var x)           = S.member x
---     goE (App a b)         = liftA2 (&&) (goE a) (goE b)
---     goE e                 = pure True
-
 eval :: Term -> Maybe Val
 eval e = evalStateT (go e) M.empty  where
     goE :: Exp -> StateT (Map String Val) Maybe Val
