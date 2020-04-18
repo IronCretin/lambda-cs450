@@ -1,28 +1,17 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ApplicativeDo #-}
 
-import System.Console.Haskeline
+module Exp where
+
 import Text.Read hiding (get, lift)
 import qualified Text.Read as R
 import Data.Char
-import Data.List
-import Data.Functor
-import Data.Foldable
-import Data.Set (Set)
-import qualified Data.Set as S
 import Data.Map (Map)
 import qualified Data.Map as M
-import Control.Applicative
-import Control.Monad.State
-
-import Failure
-import Parsers
-import Heap
-import Frame
 
 data Val
     = Num Integer
-    | Clo (Handle (Frame Val)) String Term
+    | Clo (Map String Val) String Term
     | Void
     deriving Eq
 data Exp
@@ -39,8 +28,8 @@ data Term
 
 instance Show Val where
     showsPrec p (Num n)     = showsPrec p n
-    showsPrec p (Clo m x e) = showString "#<[..." .
-                            --   foldr (\p -> (showEntry p .)) id (M.assocs m) .
+    showsPrec p (Clo m x e) = showString "#<[" .
+                              foldr (\p -> (showEntry p .)) id (M.assocs m) .
                               showString "], " .
                               showString "\\" .
                               showString x .
@@ -151,42 +140,3 @@ instance Read Term where
                     pure $ Def x e
                 , Exp <$> readPrec
                 ]
-
-
-eval :: Term -> Failure [] Val
-eval e = flip evalStateT M.empty $ do
-        root <- heapAlloc frameRoot
-        evalSt root e
-    where
-        evalEx :: Handle (Frame Val) -> Exp -> StateT (Heap (Frame Val)) (Failure []) Val
-        evalEx env (Val v)     = pure v
-        evalEx env (Var x)     = frameGet x env
-        evalEx env (Lam x e)   = do
-            pure $ Clo env x e
-        evalEx env (App a b)   = do
-            Clo envf x body <- evalEx env a
-            v <- evalEx env b
-            envb <- framePush x v envf
-            evalSt envb body
-        evalSt :: Handle (Frame Val) -> Term -> StateT (Heap (Frame Val)) (Failure []) Val
-        evalSt env (Exp e)   = evalEx env e
-        evalSt env (Def x e) = do
-            v <- evalEx env e
-            framePut x v env
-            pure Void
-        evalSt env (Seq a b) = do
-            evalSt env a
-            evalSt env b
-
-main :: IO ()
-main = runInputT (Settings noCompletion (Just ".history") True) loop  where
-    loop = do
-        inp <- getInputLine "\ESC[48;5;250m\ESC[38;5;27m λ \ESC[48;5;;38;5;250m\57520 \ESC[m"
-        case inp of
-            Nothing -> pure ()
-            Just i -> do
-                case eval =<< maybeToFailure (readMaybe i) of
-                    Ok v     -> outputStrLn $ show v
-                    Error [] -> outputStrLn $ "Parse Error"
-                    Error es -> traverse_ outputStrLn es
-                loop

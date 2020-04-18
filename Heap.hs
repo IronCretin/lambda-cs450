@@ -1,6 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 
+module Heap where
+
 import Control.Applicative
 import Control.Monad.State
 import qualified Data.Map as M
@@ -17,12 +19,12 @@ heapAlloc a = do
     modify (M.insert h a)
     pure h
 
-heapPut :: (MonadState (Heap a) m, MonadPlus m) => (Handle a) -> a -> m ()
+heapPut :: (MonadState (Heap a) m, MonadPlus m) => Handle a -> a -> m ()
 heapPut h a = gets (M.member h) >>= \case
     True  -> modify (M.insert h a)
     False -> empty
 
-heapGet :: (MonadState (Heap a) m, MonadPlus m) => (Handle a) -> m a
+heapGet :: (MonadState (Heap a) m, MonadPlus m) => Handle a -> m a
 heapGet h = gets (M.lookup h) >>= \case
     Just a  -> pure a
     Nothing -> empty
