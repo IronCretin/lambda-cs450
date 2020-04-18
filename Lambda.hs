@@ -181,7 +181,7 @@ eval e = flip evalStateT M.empty $ do
 main :: IO ()
 main = runInputT (Settings noCompletion (Just ".history") True) loop  where
     loop = do
-        inp <- getInputLine "\ESC[48;5;250m\ESC[38;5;27m λ \ESC[48;5;;38;5;250m\57520 \ESC[m"
+        inp <- getInputLine "λ> "
         case inp of
             Nothing -> pure ()
             Just i -> do
