@@ -151,12 +151,8 @@ instance Read Term where
                 , Exp <$> readPrec
                 ]
 
-<<<<<<< HEAD
-eval :: Term -> Maybe Val
-=======
 
 eval :: Term -> Failure [] Val
->>>>>>> master
 eval e = evalStateT (go e) M.empty  where
     goE :: Exp -> StateT (Map String Val) (Failure []) Val
     goE (Val v)         = pure v
