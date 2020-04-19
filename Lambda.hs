@@ -38,10 +38,7 @@ data Term
     deriving Eq
 
 instance Show Val where
-    showsPrec p (Num n)      = showsPrec p n
-    showsPrec p (Bool True)  = showString "#t"
-    showsPrec p (Bool False) = showString "#f"
-    showsPrec p (Clo m x e)  = showString "#<[@" .
+    showsPrec p (Clo m x e)  = showString "#<[&" .
                                showsPrec 0 (handleVal m) .
                                showString "], " .
                                showString "\\" .
@@ -106,14 +103,14 @@ instance Read Token where
             reserved c = isSpace c || c `elem` "()\\.#;"
             readVar = munch1 (not . reserved)
             readHash 0 = (R.get >>= \case 
-                    '<'           -> ('<':) <$> readHash 1
+                    '<'           -> readHash 1
                     '>'           -> fail "unmatched brackets"
                     w | isSpace w -> pure []
                     c             -> (c:) <$> readHash 0)
                 <++ pure []
             readHash l = R.get >>= \case 
                 '<'           -> ('<':) <$> readHash (l+1)
-                '>'           -> ('>':) <$> readHash (l-1)
+                '>'           -> (if l == 1 then id else ('>':)) <$> readHash (l-1)
                 c             -> (c:) <$> readHash l
     readListPrec = many $ readPrec
 
@@ -122,8 +119,18 @@ instance Read Val where
     readPrec = do
         readPrec >>= \case
             TNum n         -> pure $ Num n
-            THash "<void>" -> pure Void
-            _              -> fail "Not a value"
+            THash "void" -> pure Void
+            THash h        -> case readPrec_to_S readClos 0 h of
+                    [(cl, "")] -> pure cl
+                    _          -> fail "Invalid value"
+            _              -> fail "Invalid value"
+        where
+            readClos = do
+                string "[&"
+                h <- readPrec
+                string "],"
+                Lam x b <- readPrec
+                pure $ Clo (Handle h) x b
 
 instance Read Exp where
     readPrec = 
