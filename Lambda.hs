@@ -38,6 +38,7 @@ data Term
     deriving Eq
 
 instance Show Val where
+    showsPrec p (Num n)      = showsPrec p n
     showsPrec p (Clo m x e)  = showString "#<[&" .
                                showsPrec 0 (handleVal m) .
                                showString "], " .
@@ -46,11 +47,6 @@ instance Show Val where
                                showString ". " .
                                showsPrec 0 e .
                                showString ">"
-        where
-            showEntry (k, a) = showString k .
-                               showString " -> " .
-                               showsPrec 1 a .
-                               showString ";"
     showsPrec p Void        = showString "#<void>"
 
 instance Show Exp where
