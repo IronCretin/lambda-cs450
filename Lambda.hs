@@ -25,8 +25,8 @@ data Val
     | Bool Bool
     | Clo (Handle (Frame Val)) String Term
     | Void
-    | Fun1 (Val -> Val)
-    | Fun2 (Val -> Val -> Val)
+    | Fun1 String (Val -> Val)
+    | Fun2 String (Val -> Val -> Val)
     | And
     | Or
     | Const Val
@@ -61,10 +61,14 @@ instance Show Val where
                                 showsPrec 1 a .
                                 showString ";"
     showsPrec p Void          = showString "#<void>"
-    showsPrec p (Fun1 _)      = showString "#<procedure>"
-    showsPrec p (Fun2 _)      = showString "#<procedure>"
-    showsPrec p (And)         = showString "and"
-    showsPrec p (Or)          = showString "or"
+    showsPrec p (Fun1 n _)    = showString "#<procedure:" .
+                                showString n .
+                                showString ">"
+    showsPrec p (Fun2 n _)    = showString "#<procedure:" .
+                                showString n .
+                                showString ">"
+    showsPrec p (And)         = showString "#<and>"
+    showsPrec p (Or)          = showString "#<or>"
     showsPrec p (Const v)     = showString "#<const:" .
                                 showsPrec 0 v .
                                 showString ">"
@@ -183,21 +187,24 @@ instance Read Term where
                 , Exp <$> readPrec
                 ]
 
-liftNum2 :: (Integer -> Integer -> Integer) -> Val
-liftNum2 f = Fun2 $ \(Num a) (Num b) -> Num (f a b)
-liftBool :: (Bool -> Bool) -> Val
-liftBool f = Fun1 $ \(Bool b) -> Bool (f b)
-funId :: Val
-funId = Fun1 id
+liftNum2 :: String -> (Integer -> Integer -> Integer) -> (String, Val)
+liftNum2 n f = (n, Fun2 n $ \(Num a) (Num b) -> Num (f a b))
+liftBool :: String -> (Bool -> Bool) -> (String, Val)
+liftBool n f = (n, Fun1 n $ \(Bool b) -> Bool (f b))
+funId, funConst :: Val
+funId = Fun1 "id" id
+funConst = Fun1 "const" Const
 stdlib :: [(String, Val)]
 stdlib =
-    [ ("+", liftNum2 (+))
-    , ("*", liftNum2 (*))
-    , ("-", liftNum2 (-))
+    [ liftNum2 "+" (+)
+    , liftNum2 "*" (*)
+    , liftNum2 "-" (-)
     , ("and", And)
     , ("or", Or)
-    , ("not", liftBool not)
+    , liftBool "not" not
     , ("id", funId)
+    , ("const", funConst)
+    , ("voif", Void)
     ]
 
 truthy :: Val -> Bool
@@ -222,8 +229,10 @@ eval e = flip evalStateT M.empty $ do
                     v <- evalEx env b
                     envb <- framePush x v envf
                     evalSt envb body
-                Fun1 f -> f <$> evalEx env b
-                Fun2 f -> (Fun1 . f) <$> evalEx env b
+                Fun1 _ f -> f <$> evalEx env b
+                Fun2 n f -> do
+                    v <- evalEx env b
+                    pure $ Fun1 (n ++ " " ++ show v) $ f v
                 And -> do
                     v <- evalEx env b
                     if truthy v
