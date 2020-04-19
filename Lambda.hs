@@ -12,7 +12,7 @@ import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Map (Map)
 import qualified Data.Map as M
-import Control.Applicative
+import Control.Applicative hiding (Const)
 import Control.Monad.State
 
 import Failure
@@ -29,6 +29,7 @@ data Val
     | Fun2 (Val -> Val -> Val)
     | And
     | Or
+    | Const Val
     -- deriving Eq
 data Exp
     = Val Val
@@ -59,9 +60,14 @@ instance Show Val where
                                 showString " -> " .
                                 showsPrec 1 a .
                                 showString ";"
-    showsPrec p Void         = showString "#<void>"
-    showsPrec p (Fun1 _)     = showString "#<procedure>"
-    showsPrec p (Fun2 _)     = showString "#<procedure>"
+    showsPrec p Void          = showString "#<void>"
+    showsPrec p (Fun1 _)      = showString "#<procedure>"
+    showsPrec p (Fun2 _)      = showString "#<procedure>"
+    showsPrec p (And)         = showString "and"
+    showsPrec p (Or)          = showString "or"
+    showsPrec p (Const v)     = showString "#<const:" .
+                                showsPrec 0 v .
+                                showString ">"
 
 instance Show Exp where
     showsPrec p (Val v) = showsPrec p v
@@ -183,8 +189,6 @@ liftBool :: (Bool -> Bool) -> Val
 liftBool f = Fun1 $ \(Bool b) -> Bool (f b)
 funId :: Val
 funId = Fun1 id
-funConst :: Val -> Val
-funConst v = Fun1 (const v)
 stdlib :: [(String, Val)]
 stdlib =
     [ ("+", liftNum2 (+))
@@ -213,16 +217,24 @@ eval e = flip evalStateT M.empty $ do
             pure $ Clo env x e
         evalEx env (App a b)   = do
             a' <- evalEx env a
-            v <- evalEx env b
             case a' of
                 Clo envf x body -> do
                     v <- evalEx env b
                     envb <- framePush x v envf
                     evalSt envb body
-                Fun1 f -> pure $ f v
-                Fun2 f -> pure $ Fun1 $ f v
-                And -> pure $ if truthy v then funId else funConst v
-                Or -> pure $ if truthy v then  funConst v else funId
+                Fun1 f -> f <$> evalEx env b
+                Fun2 f -> (Fun1 . f) <$> evalEx env b
+                And -> do
+                    v <- evalEx env b
+                    if truthy v
+                    then pure funId
+                    else pure $ Const v
+                Or -> do
+                    v <- evalEx env b
+                    if truthy v
+                    then pure $ Const v
+                    else pure funId
+                Const c -> pure c
                 _ -> fail $ "Not an expression: " ++ show a'
 
         evalSt :: Handle (Frame Val) -> Term -> StateT (Heap (Frame Val)) (Failure []) Val
