@@ -27,14 +27,14 @@ data Val
     | Void
     | Fun1 (Val -> Val)
     | Fun2 (Val -> Val -> Val)
+    | And
+    | Or
     -- deriving Eq
 data Exp
     = Val Val
     | Var String
     | App Exp Exp
     | Lam String Term
-    | And Exp Exp
-    | Or Exp Exp
     -- deriving Eq
 data Term
     = Exp Exp
@@ -112,16 +112,18 @@ instance Read Token where
         ] where
             reserved c = isSpace c || c `elem` "()\\.#;"
             readVar = munch1 (not . reserved)
-            readHash 0 = (R.get >>= \case 
-                    '<'           -> ('<':) <$> readHash 1
-                    '>'           -> fail "unmatched brackets"
-                    w | isSpace w -> pure []
-                    c             -> (c:) <$> readHash 0)
-                <++ pure []
+            readHash 0 = look >>= \case 
+                    '<':_            -> do R.get; readHash 1
+                    '>':_            -> fail "unmatched brackets"
+                    c:_ | reserved c -> pure []
+                        | otherwise  -> do R.get; (c:) <$> readHash 0
+                    []               -> pure []
             readHash l = R.get >>= \case 
-                '<'           -> ('<':) <$> readHash (l+1)
-                '>'           -> ('>':) <$> readHash (l-1)
-                c             -> (c:) <$> readHash l
+                    '<'           -> ('<':) <$> readHash (l+1)
+                    '>'           -> if l == 1
+                        then pure []
+                        else ('>':) <$> readHash (l-1)
+                    c             -> (c:) <$> readHash l
     readListPrec = many $ readPrec
 
 
@@ -129,7 +131,9 @@ instance Read Val where
     readPrec = do
         readPrec >>= \case
             TNum n         -> pure $ Num n
-            THash "<void>" -> pure Void
+            THash "t"      -> pure $ Bool True
+            THash "f"      -> pure $ Bool False
+            THash "void" -> pure Void
             _              -> fail "Not a value"
 
 instance Read Exp where
@@ -175,15 +179,28 @@ instance Read Term where
 
 liftNum2 :: (Integer -> Integer -> Integer) -> Val
 liftNum2 f = Fun2 $ \(Num a) (Num b) -> Num (f a b)
+liftBool :: (Bool -> Bool) -> Val
+liftBool f = Fun1 $ \(Bool b) -> Bool (f b)
+funId :: Val
+funId = Fun1 id
+funConst :: Val -> Val
+funConst v = Fun1 (const v)
 stdlib :: [(String, Val)]
 stdlib =
     [ ("+", liftNum2 (+))
     , ("*", liftNum2 (*))
     , ("-", liftNum2 (-))
+    , ("and", And)
+    , ("or", Or)
+    , ("not", liftBool not)
+    , ("id", funId)
     ]
 
-eval :: Term -> Failure [] Val
+truthy :: Val -> Bool
+truthy (Bool b) = b
+truthy _        = True
 
+eval :: Term -> Failure [] Val
 eval e = flip evalStateT M.empty $ do
         root <- heapAlloc frameRoot
         traverse (\(k, v) -> framePut k v root) stdlib
@@ -204,6 +221,8 @@ eval e = flip evalStateT M.empty $ do
                     evalSt envb body
                 Fun1 f -> pure $ f v
                 Fun2 f -> pure $ Fun1 $ f v
+                And -> pure $ if truthy v then funId else funConst v
+                Or -> pure $ if truthy v then  funConst v else funId
                 _ -> fail $ "Not an expression: " ++ show a'
 
         evalSt :: Handle (Frame Val) -> Term -> StateT (Heap (Frame Val)) (Failure []) Val
