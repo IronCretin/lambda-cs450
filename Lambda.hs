@@ -58,10 +58,7 @@ instance Show Val where
     showsPrec p (Clo m x e)  = showString "#<[@" .
                                showsPrec 0 (handleVal m) .
                                showString "], " .
-                               showString "\\" .
-                               showString x .
-                               showString ". " .
-                               showsPrec 0 e .
+                               showsPrec 0 (Lam x e) .
                                showString ">"
         where
             showEntry (k, a)  = showString k .
@@ -82,17 +79,23 @@ instance Show Val where
                                 showString ">"
 
 instance Show Exp where
-    showsPrec p (Val v) = showsPrec p v
-    showsPrec p (Var x) = showString x
+    showsPrec p (Val v)   = showsPrec p v
+    showsPrec p (Var x)   = showString x
     showsPrec p (App a b) = showParen (p >= 0) $
                                 showsPrec (-1) a .
                                 showString " " .
                                 showsPrec 2 b
     showsPrec p (Lam x e) = showParen True $
                                 showString "lambda (" .
-                                showString x .
+                                foldr1 (\x r -> x . showString " " . r)
+                                    (showString <$> largs (Exp (Lam x e))) .
                                 showString ") " .
-                                showsPrec 0 e
+                                showsPrec 0 (lbody (Exp (Lam x e)))
+        where
+            largs (Exp (Lam x e)) = x:largs e
+            largs e         = []
+            lbody (Exp (Lam x t)) = lbody t
+            lbody t               = t
 
 instance Show Term where
     showsPrec p (Exp e)   = showsPrec 1 e
