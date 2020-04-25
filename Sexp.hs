@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ApplicativeDo #-}
 
-module Sexp (Sexp) where
+module Sexp (Sexp(..)) where
 
 import Text.Read
 import Control.Applicative (many, empty, (<|>))

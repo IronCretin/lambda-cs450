@@ -1,5 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE RankNTypes #-}
+
+module Lambda where
 
 import System.Console.Haskeline
 import Text.Read hiding (get, lift)
@@ -8,6 +12,7 @@ import Data.Char
 import Data.List
 import Data.Functor
 import Data.Foldable
+import Data.Traversable
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Map (Map)
@@ -19,9 +24,11 @@ import Failure
 import Parsers
 import Heap
 import Frame
+import Sexp
 
 data Val
-    = Num Integer
+    = Int Integer
+    | Float Double
     | Bool Bool
     | Clo (Handle (Frame Val)) String Term
     | Void
@@ -44,7 +51,8 @@ data Term
     -- deriving Eq
 
 instance Show Val where
-    showsPrec p (Num n)      = showsPrec p n
+    showsPrec p (Int n)      = showsPrec p n
+    showsPrec p (Float n)    = showsPrec p n
     showsPrec p (Bool True)  = showString "#t"
     showsPrec p (Bool False) = showString "#f"
     showsPrec p (Clo m x e)  = showString "#<[@" .
@@ -80,115 +88,102 @@ instance Show Exp where
                                 showsPrec (-1) a .
                                 showString " " .
                                 showsPrec 2 b
-    showsPrec p (Lam x e) = showParen (p < 0 || 1 < p) $
-                                showString "\\" .
+    showsPrec p (Lam x e) = showParen True $
+                                showString "lambda (" .
                                 showString x .
-                                showString ". " .
+                                showString ") " .
                                 showsPrec 0 e
 
 instance Show Term where
     showsPrec p (Exp e)   = showsPrec 1 e
-    showsPrec p (Seq a b) = showParen (p > 1) $
-                                showsPrec 0 a .
-                                (if (p == 0)
-                                    then showString ";\n"
-                                    else showString ";") .
-                                showsPrec 0 b
-    showsPrec p (Def x e) = showString "let " .
-                            showString x .
-                            showString " := " .
-                            showsPrec 2 e
-
-data Token = TOpen | TClose | TLam | TSC | TLet | TEQ | TDot | THash String | TNum Integer | TName String  deriving (Eq, Show)
-
-instance Read Token where
-    readPrec = foldl1 (<++)
-        [ TNum <$> readPrec
-        , R.get >>= \case
-            '('           -> pure TOpen
-            ')'           -> pure TClose
-            '\\'          -> pure TLam
-            '.'           -> pure TDot
-            ';'           -> pure TSC
-            '#'           -> THash <$> readHash 0
-            w | isSpace w -> readPrec
-            _             -> empty
-        , readVar <&> \case
-            "let" -> TLet
-            ":="  -> TEQ
-            v     -> TName v
-        , TLet <$ string "let"
-        , TEQ <$ string ":="
-        ] where
-            reserved c = isSpace c || c `elem` "()\\.#;"
-            readVar = munch1 (not . reserved)
-            readHash 0 = look >>= \case 
-                    '<':_            -> do R.get; readHash 1
-                    '>':_            -> fail "unmatched brackets"
-                    c:_ | reserved c -> pure []
-                        | otherwise  -> do R.get; (c:) <$> readHash 0
-                    []               -> pure []
-            readHash l = R.get >>= \case 
-                    '<'           -> ('<':) <$> readHash (l+1)
-                    '>'           -> if l == 1
-                        then pure []
-                        else ('>':) <$> readHash (l-1)
-                    c             -> (c:) <$> readHash l
-    readListPrec = many $ readPrec
+    showsPrec p (Seq a b) = showsPrec 0 a .
+                            (if (p == 0)
+                                then showString "\n"
+                                else showString " ") .
+                            showsPrec 0 b
+    showsPrec p (Def x e) = showParen True $
+                                showString "define " .
+                                showString x .
+                                showString " " .
+                                showsPrec 0 e
 
 
 instance Read Val where
-    readPrec = do
-        readPrec >>= \case
-            TNum n         -> pure $ Num n
-            THash "t"      -> pure $ Bool True
-            THash "f"      -> pure $ Bool False
-            THash "void" -> pure Void
-            _              -> fail "Not a value"
+    readPrec = readPrec >>= mkVal
+mkVal :: MonadPlus m => Sexp -> m Val
+mkVal = \case
+    I n         -> pure $ Int n
+    F n         -> pure $ Float n
+    H "t"       -> pure $ Bool True
+    H "f"       -> pure $ Bool False
+    H "<void>"  -> pure $ Void
+    N "define"  -> fail "reserved name: define"
+    N "lambda"  -> fail "reserved name: lambda"
+    _           -> fail "Not a value"
 
 instance Read Exp where
-    readPrec = 
-        foldl1 App <$> some (foldl1 (<++)
-            [ readPrec >>= \case
-                TOpen -> readPrec <* require TClose
-                TLam  -> readLam []
-                _ -> empty
-            , Val <$> readPrec
-            , do
-                TName n <- readPrec
-                pure $ Var n
-            ])
-        where
-            readLam :: [String] -> ReadPrec Exp
-            readLam args = readPrec >>= \case
-                TName n -> readLam (n:args)
-                TDot    -> do
-                    body <- readPrec
-                    pure $ foldl (\e x -> Lam x (Exp e)) body args
-                _       -> fail "Invalid lambda"
-
+    readPrec = readPrec >>= mkExp
+mkExp :: MonadPlus m => Sexp -> m Exp
+mkExp = \case
+        L (N "lambda":L xs:t) -> do
+            guard $ not $ null xs
+            as <- traverse (\case N x -> pure x; _ -> empty) xs
+            b  <- mkTerm t
+            let Exp e = foldr ((Exp .) . Lam) b as
+            pure e
+        L (N "lambda":_)           -> fail "invalid lambda"
+        L []                       -> fail "empty application"
+        L es                       -> foldl1 App <$> traverse mkExp es
+        N x                        -> pure $ Var x
+        s                          -> Val <$> mkVal s
+--     readPrec = 
+--         foldl1 App <$> some (foldl1 (<++)
+--             [ readPrec >>= \case
+--                 TOpen -> readPrec <* require TClose
+--                 TLam  -> readLam []
+--                 _ -> empty
+--             , Val <$> readPrec
+--             , do
+--                 TName n <- readPrec
+--                 pure $ Var n
+--             ])
+--         where
+--             readLam :: [String] -> ReadPrec Exp
+--             readLam args = readPrec >>= \case
+--                 TName n -> readLam (n:args)
+--                 TDot    -> do
+--                     body <- readPrec
+--                     pure $ foldl (\e x -> Lam x (Exp e)) body args
+--                 _       -> fail "Invalid lambda"
 instance Read Term where
-    readPrec = do
-        a <- readTerm
-        foldl1 (<++)
-            [ do
-                require TSC
-                b <- readPrec
-                pure $ Seq a b
-            , pure a
-            ]  where
-            readTerm = foldl1 (<++)
-                [ do
-                    require TLet
-                    TName x <- readPrec
-                    require TEQ
-                    e <- readPrec
-                    pure $ Def x e
-                , Exp <$> readPrec
-                ]
+    readPrec = some readPrec >>= mkTerm
+mkTerm :: MonadPlus m => [Sexp] -> m Term
+mkTerm xs = foldr1 Seq <$> for xs \case
+        L [N "define", N n, v] -> Def n <$> mkExp v
+        L (N "define":_)       -> fail "invalid define"
+        s                      -> Exp <$> mkExp s
+-- instance Read Term where
+--     readPrec = do
+--         a <- readTerm
+--         foldl1 (<++)
+--             [ do
+--                 require TSC
+--                 b <- readPrec
+--                 pure $ Seq a b
+--             , pure a
+--             ]  where
+--             readTerm = foldl1 (<++)
+--                 [ do
+--                     require TLet
+--                     TName x <- readPrec
+--                     require TEQ
+--                     e <- readPrec
+--                     pure $ Def x e
+--                 , Exp <$> readPrec
+--                 ]
 
-liftNum2 :: String -> (Integer -> Integer -> Integer) -> (String, Val)
-liftNum2 n f = (n, Fun2 n $ \(Num a) (Num b) -> Num (f a b))
+liftNum2 :: String -> (forall n. Num n => n -> n -> n) -> (String, Val)
+liftNum2 n f = (n, Fun2 n $ \(Int a) (Int b) -> Int (f a b))
 liftBool :: String -> (Bool -> Bool) -> (String, Val)
 liftBool n f = (n, Fun1 n $ \(Bool b) -> Bool (f b))
 funId, funConst :: Val
