@@ -20,6 +20,10 @@ instance Read Tok where
         , get >>= \case
             '('  -> pure $ TP "("
             ')'  -> pure $ TP ")"
+            '['  -> pure $ TP "["
+            ']'  -> pure $ TP "]"
+            '{'  -> pure $ TP "{"
+            '}'  -> pure $ TP "}"
             '\'' -> pure $ TP "'"
             '-'  -> pure $ TN "-"
             '#'  -> TH <$> readHash 0
@@ -28,7 +32,7 @@ instance Read Tok where
             _    -> empty
         ]
         where
-            reserved c = isSpace c || c `elem` "();|#'"
+            reserved c = isSpace c || c `elem` "()[]{};|#'"
             readVar = munch1 (not . reserved)
                 <|> do
                     '|' <- get
@@ -59,9 +63,13 @@ instance Read Sexp where
         TN x -> pure $ N x
         TH x -> pure $ H x
         TS x -> pure $ S x
-        TP "(" -> do
-            exs <- many readPrec
-            require $ TP ")"
-            pure $ L exs
+        TP "(" -> readL ")"
+        TP "[" -> readL "]"
+        TP "{" -> readL "}"
         _ -> empty
     readListPrec = many readPrec
+
+readL cl = do
+    exs <- many readPrec
+    require $ TP cl
+    pure $ L exs
